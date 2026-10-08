@@ -201,6 +201,22 @@ For a real deployment, use trusted incident feeds, human operational oversight, 
 
 See [dynamic-emergency-routing-graph.md](dynamic-emergency-routing-graph.md) for the concept, database design rationale, example data entities, and project scope.
 
-## Repository status check
+## Run the MVP
 
-This line was added to verify the repository's commit-and-push workflow from the development workspace.
+1. Create a local `.env` from `.env.example` and set `NEO4J_PASSWORD` to a local password.
+2. Start Neo4j: `docker compose up -d`.
+3. Create and activate a Python virtual environment, then install the project:
+
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   python -m pip install -e ".[dev]"
+   ```
+
+4. Start the API: `uvicorn app.main:app --reload`.
+5. Open `http://127.0.0.1:8000/docs`. Seed the network with the contents of `data/sample-network.json` using `POST /network/seed`.
+6. Run tests: `pytest -q`; lint with `ruff check .`.
+
+`POST /reports` stores proposed, pending incident reports. Only `POST /reports/{report_id}/confirm` applies their impact; `POST /reports/{report_id}/resolve` clears an accepted impact. Submit a route through `POST /routes`.
+
+This is an educational MVP: it does not ingest live feeds, geocode reports, or provide validated emergency dispatch advice. Human review is required before reports affect routing.
