@@ -200,3 +200,7 @@ For a real deployment, use trusted incident feeds, human operational oversight, 
 ## Existing design document
 
 See [dynamic-emergency-routing-graph.md](dynamic-emergency-routing-graph.md) for the concept, database design rationale, example data entities, and project scope.
+
+## Repository status check
+
+This line was added to verify the repository's commit-and-push workflow from the development workspace.
