@@ -12,6 +12,7 @@ from app.incidents import (
     resolve_report,
 )
 from app.models import NetworkSeed, ReportInput, RouteRequest
+from app.network import get_segment, list_network
 from app.routing import find_route
 
 
@@ -59,6 +60,19 @@ def network_seed(payload: NetworkSeed):
         [item.model_dump() for item in payload.roads],
     )
     return {"intersections": len(known), "roads": len(payload.roads), "status": "seeded"}
+
+
+@app.get("/network")
+def network():
+    return list_network(app.state.driver)
+
+
+@app.get("/roads/{road_id}")
+def road(road_id: str):
+    try:
+        return get_segment(app.state.driver, road_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.post("/reports", status_code=201)

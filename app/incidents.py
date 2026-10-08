@@ -75,20 +75,17 @@ def confirm_report(driver: Driver, report_id: str) -> dict:
                 "MATCH (r:Report {id:$id}) "
                 "OPTIONAL MATCH (r)-[:PROPOSES_IMPACT]->(s:RoadSegment) "
                 "WITH r, collect(s) AS roads "
-                "WHERE r.status IN ['pending', 'confirmed'] AND size(roads) > 0 "
+                "WHERE r.status='pending' AND size(roads) > 0 "
                 "SET r.status='confirmed', r.reviewed_at=datetime() "
-                "WITH r, roads "
-                "WHERE r.status='pending' "
-                "UNWIND roads AS s "
+                "WITH r, roads UNWIND roads AS s "
                 "MERGE (i:Incident {id:'incident:' + r.id}) "
-                "SET i.severity=r.severity, i.status='confirmed', i.reported_at=r.received_at "
-                "SET i.explicitly_confirmed=true "
+                "SET i.severity=r.severity, i.status='confirmed', i.reported_at=r.received_at, "
+                "i.explicitly_confirmed=true "
                 "MERGE (r)-[:DESCRIBES]->(i) "
                 "MERGE (i)-[impact:AFFECTS]->(s) "
                 "SET impact.delay_seconds=r.delay_seconds, impact.closure=r.closure, "
                 "impact.active=true "
-                "WITH r, roads "
-                "UNWIND roads AS s "
+                "WITH r, roads UNWIND roads AS s "
                 "OPTIONAL MATCH (other:Incident {status:'confirmed', explicitly_confirmed:true}) "
                 "-[active:AFFECTS {active:true}]->(s) "
                 "WITH r, s, collect(active) AS impacts "
@@ -104,9 +101,7 @@ def confirm_report(driver: Driver, report_id: str) -> dict:
                 exists = tx.run("MATCH (r:Report {id:$id}) RETURN r.status AS status", id=report_id).single()
                 if exists is None:
                     raise ValueError(f"Report not found: {report_id}")
-                if exists["status"] == "rejected":
-                    raise ValueError("Rejected reports cannot be confirmed")
-                raise ValueError("Report has no linked road segments")
+                raise ValueError(f"Only pending reports can be confirmed (current: {exists['status']})")
             return dict(record)
         return session.execute_write(write)
 
@@ -136,7 +131,8 @@ def resolve_report(driver: Driver, report_id: str) -> dict:
         def write(tx) -> dict:
             record = tx.run(
                 "MATCH (r:Report {id:$id})-[:DESCRIBES]->(i:Incident) "
-                "OPTIONAL MATCH (i)-[impact:AFFECTS]->(s:RoadSegment) "
+                "WHERE r.status='confirmed' AND i.status='confirmed' "
+                "OPTIONAL MATCH (i)-[:AFFECTS]->(s:RoadSegment) "
                 "WITH r, i, collect(DISTINCT s) AS roads "
                 "SET r.status='resolved', i.status='resolved', i.resolved_at=datetime() "
                 "WITH r, i, roads "
@@ -160,8 +156,9 @@ def resolve_report(driver: Driver, report_id: str) -> dict:
 
 def list_incidents(driver: Driver, status: str | None = None) -> list[dict]:
     query = (
-        "MATCH (i:Incident) OPTIONAL MATCH (r:Report)-[:DESCRIBES]->(i) "
+        "MATCH (i:Incident) "
         "WHERE $status IS NULL OR i.status=$status "
+        "OPTIONAL MATCH (r:Report)-[:DESCRIBES]->(i) "
         "RETURN i.id AS id, i.severity AS severity, i.status AS status, "
         "i.reported_at AS reported_at, collect(r.id) AS reports ORDER BY reported_at DESC"
     )
