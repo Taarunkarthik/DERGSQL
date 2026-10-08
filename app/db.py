@@ -51,7 +51,7 @@ def seed_network(driver: Driver, intersections: list[dict], roads: list[dict]) -
                 "MERGE (r:RoadSegment {id:item.id}) "
                 "ON CREATE SET r.baseline_seconds=item.baseline_seconds, "
                 "r.effective_seconds=item.baseline_seconds, r.length_m=item.length_m, "
-                "r.status=item.status "
+                "r.status=item.status, r.allowed_vehicle_types=item.allowed_vehicle_types "
                 "MERGE (a)-[:ROAD_TO]->(r) MERGE (r)-[:ROAD_TO]->(b)",
                 items=roads,
             ).consume()

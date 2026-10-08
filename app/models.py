@@ -30,6 +30,7 @@ class RoadInput(BaseModel):
     baseline_seconds: float = Field(gt=0)
     length_m: float = Field(gt=0)
     status: Literal["open", "closed"] = "open"
+    allowed_vehicle_types: list[str] = Field(default_factory=lambda: ["ambulance", "fire", "police", "general"])
 
 
 class NetworkSeed(BaseModel):
@@ -58,9 +59,9 @@ class ReportInput(BaseModel):
 
 
 class RouteRequest(BaseModel):
-    origin_id: str
-    destination_id: str
-    vehicle_type: str = "ambulance"
+    origin_id: str = Field(min_length=1, max_length=100)
+    destination_id: str = Field(min_length=1, max_length=100)
+    vehicle_type: Literal["ambulance", "fire", "police", "general"] = "ambulance"
 
 
 class RouteResponse(BaseModel):
@@ -68,4 +69,5 @@ class RouteResponse(BaseModel):
     road_ids: list[str]
     estimated_seconds: float
     calculated_at: datetime
-    traffic_version: int
+    traffic_version: str
+    vehicle_type: str = "ambulance"

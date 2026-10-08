@@ -125,6 +125,11 @@ def incidents(status: str | None = None):
 @app.post("/routes")
 def route(payload: RouteRequest):
     try:
-        return find_route(app.state.driver, payload.origin_id, payload.destination_id)
+        return find_route(
+            app.state.driver,
+            payload.origin_id,
+            payload.destination_id,
+            payload.vehicle_type,
+        )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

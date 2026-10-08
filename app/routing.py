@@ -2,17 +2,26 @@ from __future__ import annotations
 
 import heapq
 from datetime import datetime, timezone
+from hashlib import sha256
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from neo4j import Driver
 
 
-def shortest_path(edges: list[dict], origin_id: str, destination_id: str) -> dict:
+def shortest_path(
+    edges: list[dict],
+    origin_id: str,
+    destination_id: str,
+    vehicle_type: str = "ambulance",
+) -> dict:
     """Compute a minimum-travel-time route over directed, nonnegative edges."""
     adjacency: dict[str, list[tuple[str, float, str]]] = {}
     for edge in edges:
         if edge["status"] == "closed":
+            continue
+        permitted = edge.get("allowed_vehicle_types")
+        if permitted is not None and vehicle_type not in permitted:
             continue
         cost = float(edge["effective_seconds"])
         if cost < 0:
@@ -54,18 +63,38 @@ def shortest_path(edges: list[dict], origin_id: str, destination_id: str) -> dic
     }
 
 
-def find_route(driver: Driver, origin_id: str, destination_id: str) -> dict:
+def _traffic_version(edges: list[dict]) -> str:
+    """Stable fingerprint for the traffic graph snapshot used by this query."""
+    signature = [
+        (
+            edge["id"],
+            edge["start_id"],
+            edge["end_id"],
+            float(edge["effective_seconds"]),
+            edge["status"],
+            tuple(sorted(edge.get("allowed_vehicle_types") or [])),
+        )
+        for edge in edges
+    ]
+    canonical = repr(sorted(signature)).encode("utf-8")
+    return sha256(canonical).hexdigest()[:16]
+
+
+def find_route(
+    driver: Driver,
+    origin_id: str,
+    destination_id: str,
+    vehicle_type: str = "ambulance",
+) -> dict:
     with driver.session() as session:
         rows = session.run(
             "MATCH (a:Intersection)-[:ROAD_TO]->(r:RoadSegment)-[:ROAD_TO]->(b:Intersection) "
             "RETURN a.id AS start_id, b.id AS end_id, r.id AS id, "
-            "r.effective_seconds AS effective_seconds, r.status AS status"
+            "r.effective_seconds AS effective_seconds, r.status AS status, "
+            "r.allowed_vehicle_types AS allowed_vehicle_types"
         )
         edges = [dict(row) for row in rows]
-        version = session.run(
-            "MATCH (s:RoadSegment) RETURN count(s) AS count, "
-            "coalesce(sum(s.effective_seconds), 0) AS cost_sum"
-        ).single()
-    route = shortest_path(edges, origin_id, destination_id)
-    route["traffic_version"] = int(version["count"] + version["cost_sum"])
+    route = shortest_path(edges, origin_id, destination_id, vehicle_type)
+    route["traffic_version"] = _traffic_version(edges)
+    route["vehicle_type"] = vehicle_type
     return route

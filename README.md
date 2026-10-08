@@ -218,6 +218,6 @@ See [dynamic-emergency-routing-graph.md](dynamic-emergency-routing-graph.md) for
 6. Inspect the stored graph using `GET /network` or a segment using `GET /roads/{road_id}`; submit a report and review it via the report confirm/reject endpoints.
 7. Run tests: `pytest -q`; lint with `ruff check .`.
 
-`POST /reports` stores proposed, pending incident reports. Only `POST /reports/{report_id}/confirm` applies their impact; `POST /reports/{report_id}/reject` rejects an unverified report; `POST /reports/{report_id}/resolve` clears a confirmed incident impact. Submit a route through `POST /routes`. Confirmed incident delays are summed, and any active closure excludes that segment from routing.
+`POST /reports` stores proposed, pending incident reports. Only `POST /reports/{report_id}/confirm` applies their impact; `POST /reports/{report_id}/reject` rejects an unverified report; `POST /reports/{report_id}/resolve` clears a confirmed incident impact. Submit a route through `POST /routes` with `origin_id`, `destination_id`, and optional `vehicle_type` (`ambulance`, `fire`, `police`, or `general`). Seeded roads can specify `allowed_vehicle_types`; Dijkstra excludes roads that do not allow the requested vehicle. Route results include a stable fingerprint of the traffic graph snapshot. Confirmed incident delays are summed, and any active closure excludes that segment from routing.
 
 This is an educational MVP: it does not ingest live feeds, geocode reports, or provide validated emergency dispatch advice. Human review is required before reports affect routing.

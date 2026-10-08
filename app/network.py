@@ -23,7 +23,8 @@ def list_network(driver: Driver) -> dict:
                 "MATCH (a:Intersection)-[:ROAD_TO]->(r:RoadSegment)-[:ROAD_TO]->(b:Intersection) "
                 "RETURN r.id AS id, a.id AS start_id, b.id AS end_id, "
                 "r.length_m AS length_m, r.baseline_seconds AS baseline_seconds, "
-                "r.effective_seconds AS effective_seconds, r.status AS status ORDER BY id"
+                "r.effective_seconds AS effective_seconds, r.status AS status, "
+                "r.allowed_vehicle_types AS allowed_vehicle_types ORDER BY id"
             )
         ]
     return {"intersections": intersections, "roads": roads}
@@ -34,7 +35,8 @@ def get_segment(driver: Driver, road_id: str) -> dict:
         "MATCH (a:Intersection)-[:ROAD_TO]->(r:RoadSegment {id:$id})-[:ROAD_TO]->(b:Intersection) "
         "RETURN r.id AS id, a.id AS start_id, b.id AS end_id, "
         "r.length_m AS length_m, r.baseline_seconds AS baseline_seconds, "
-        "r.effective_seconds AS effective_seconds, r.status AS status"
+        "r.effective_seconds AS effective_seconds, r.status AS status, "
+        "r.allowed_vehicle_types AS allowed_vehicle_types"
     )
     with driver.session() as session:
         record = session.run(query, id=road_id).single()

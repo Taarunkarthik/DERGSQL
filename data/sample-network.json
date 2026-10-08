@@ -6,10 +6,10 @@
     {"id": "D", "name": "City Hospital", "latitude": 12.9850, "longitude": 77.6000}
   ],
   "roads": [
-    {"id": "AB", "start_id": "A", "end_id": "B", "baseline_seconds": 240, "length_m": 1000, "status": "open"},
-    {"id": "BD", "start_id": "B", "end_id": "D", "baseline_seconds": 240, "length_m": 1100, "status": "open"},
-    {"id": "AC", "start_id": "A", "end_id": "C", "baseline_seconds": 300, "length_m": 1200, "status": "open"},
-    {"id": "CD", "start_id": "C", "end_id": "D", "baseline_seconds": 300, "length_m": 1000, "status": "open"},
-    {"id": "BC", "start_id": "B", "end_id": "C", "baseline_seconds": 90, "length_m": 400, "status": "open"}
+    {"id": "AB", "start_id": "A", "end_id": "B", "baseline_seconds": 240, "length_m": 1000, "status": "open", "allowed_vehicle_types": ["ambulance", "fire", "police", "general"]},
+    {"id": "BD", "start_id": "B", "end_id": "D", "baseline_seconds": 240, "length_m": 1100, "status": "open", "allowed_vehicle_types": ["ambulance", "fire", "police", "general"]},
+    {"id": "AC", "start_id": "A", "end_id": "C", "baseline_seconds": 300, "length_m": 1200, "status": "open", "allowed_vehicle_types": ["ambulance", "fire", "police", "general"]},
+    {"id": "CD", "start_id": "C", "end_id": "D", "baseline_seconds": 300, "length_m": 1000, "status": "open", "allowed_vehicle_types": ["ambulance", "fire", "police", "general"]},
+    {"id": "BC", "start_id": "B", "end_id": "C", "baseline_seconds": 90, "length_m": 400, "status": "open", "allowed_vehicle_types": ["ambulance", "fire", "police", "general"]}
   ]
 }
