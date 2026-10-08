@@ -1,4 +1,9 @@
-from neo4j import Driver
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from neo4j import Driver
 
 from app.models import ReportInput
 
@@ -7,6 +12,27 @@ def ingest_report(driver: Driver, report: ReportInput) -> dict:
     data = report.model_dump(mode="json")
     with driver.session() as session:
         def write(tx) -> dict:
+            existing = tx.run(
+                "MATCH (r:Report {id:$id}) RETURN r.source AS source, r.raw_text AS raw_text, "
+                "r.location_text AS location_text, r.severity AS severity, "
+                "r.delay_seconds AS delay_seconds, r.closure AS closure, "
+                "r.confidence AS confidence, r.status AS status",
+                id=report.report_id,
+            ).single()
+            expected = {
+                "source": report.source,
+                "raw_text": report.raw_text,
+                "location_text": report.location_text,
+                "severity": report.severity,
+                "delay_seconds": report.delay_seconds,
+                "closure": report.closure,
+                "confidence": report.confidence,
+            }
+            if existing is not None:
+                if any(existing[key] != value for key, value in expected.items()):
+                    raise ValueError("Report ID already exists with different content")
+                if existing["status"] != "pending":
+                    raise ValueError(f"Report has already been reviewed ({existing['status']})")
             missing = tx.run(
                 "UNWIND $ids AS id OPTIONAL MATCH (r:RoadSegment {id:id}) "
                 "WITH id, r WHERE r IS NULL RETURN collect(id) AS missing",
@@ -23,7 +49,10 @@ def ingest_report(driver: Driver, report: ReportInput) -> dict:
                 "WITH r UNWIND $road_ids AS road_id "
                 "MATCH (s:RoadSegment {id:road_id}) "
                 "MERGE (r)-[:PROPOSES_IMPACT]->(s) "
-                "RETURN r.id AS id, r.status AS status",
+                "RETURN r.id AS id, r.status AS status, "
+                "r.source AS source, r.raw_text AS raw_text, r.severity AS severity, "
+                "r.delay_seconds AS delay_seconds, r.closure AS closure, "
+                "r.confidence AS confidence, r.location_text AS location_text",
                 id=report.report_id,
                 source=report.source,
                 raw_text=report.raw_text,
@@ -49,6 +78,7 @@ def confirm_report(driver: Driver, report_id: str) -> dict:
                 "WHERE r.status IN ['pending', 'confirmed'] AND size(roads) > 0 "
                 "SET r.status='confirmed', r.reviewed_at=datetime() "
                 "WITH r, roads "
+                "WHERE r.status='pending' "
                 "UNWIND roads AS s "
                 "MERGE (i:Incident {id:'incident:' + r.id}) "
                 "SET i.severity=r.severity, i.status='confirmed', i.reported_at=r.received_at "
@@ -79,6 +109,26 @@ def confirm_report(driver: Driver, report_id: str) -> dict:
                 raise ValueError("Report has no linked road segments")
             return dict(record)
         return session.execute_write(write)
+
+
+def reject_report(driver: Driver, report_id: str) -> dict:
+    """Reject an unverified report without applying any road impacts."""
+    with driver.session() as session:
+        record = session.run(
+            "MATCH (r:Report {id:$id}) "
+            "WHERE r.status='pending' "
+            "SET r.status='rejected', r.reviewed_at=datetime() "
+            "RETURN r.id AS id, r.status AS status",
+            id=report_id,
+        ).single()
+        if record is not None:
+            return dict(record)
+        existing = session.run(
+            "MATCH (r:Report {id:$id}) RETURN r.status AS status", id=report_id
+        ).single()
+        if existing is None:
+            raise ValueError(f"Report not found: {report_id}")
+        raise ValueError(f"Only pending reports can be rejected (current: {existing['status']})")
 
 
 def resolve_report(driver: Driver, report_id: str) -> dict:

@@ -1,12 +1,18 @@
+from __future__ import annotations
+
 from collections.abc import Iterator
 from contextlib import contextmanager
+from typing import TYPE_CHECKING
 
-from neo4j import Driver, GraphDatabase
+if TYPE_CHECKING:
+    from neo4j import Driver
 
 from app.config import settings
 
 
 def create_driver() -> Driver:
+    from neo4j import GraphDatabase
+
     return GraphDatabase.driver(
         settings.neo4j_uri,
         auth=(settings.neo4j_username, settings.neo4j_password),
@@ -43,7 +49,7 @@ def seed_network(driver: Driver, intersections: list[dict], roads: list[dict]) -
                 "UNWIND $items AS item "
                 "MATCH (a:Intersection {id:item.start_id}), (b:Intersection {id:item.end_id}) "
                 "MERGE (r:RoadSegment {id:item.id}) "
-                "SET r.baseline_seconds=item.baseline_seconds, "
+                "ON CREATE SET r.baseline_seconds=item.baseline_seconds, "
                 "r.effective_seconds=item.baseline_seconds, r.length_m=item.length_m, "
                 "r.status=item.status "
                 "MERGE (a)-[:ROAD_TO]->(r) MERGE (r)-[:ROAD_TO]->(b)",

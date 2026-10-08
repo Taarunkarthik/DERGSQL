@@ -2,8 +2,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 
+from app.audit import report_audit
 from app.db import create_driver, initialize_schema, seed_network
-from app.incidents import confirm_report, ingest_report, list_incidents, resolve_report
+from app.incidents import (
+    confirm_report,
+    ingest_report,
+    list_incidents,
+    reject_report,
+    resolve_report,
+)
 from app.models import NetworkSeed, ReportInput, RouteRequest
 from app.routing import find_route
 
@@ -70,11 +77,29 @@ def confirm(report_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.post("/reports/{report_id}/reject")
+def reject(report_id: str):
+    try:
+        return reject_report(app.state.driver, report_id)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 404 if message.startswith("Report not found") else 409
+        raise HTTPException(status_code=status_code, detail=message) from exc
+
+
 @app.post("/reports/{report_id}/resolve")
 def resolve(report_id: str):
     try:
         return resolve_report(app.state.driver, report_id)
     except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/reports/{report_id}/audit")
+def report_history(report_id: str):
+    try:
+        return report_audit(app.state.driver, report_id)
+    except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 

@@ -217,6 +217,6 @@ See [dynamic-emergency-routing-graph.md](dynamic-emergency-routing-graph.md) for
 5. Open `http://127.0.0.1:8000/docs`. Seed the network with the contents of `data/sample-network.json` using `POST /network/seed`.
 6. Run tests: `pytest -q`; lint with `ruff check .`.
 
-`POST /reports` stores proposed, pending incident reports. Only `POST /reports/{report_id}/confirm` applies their impact; `POST /reports/{report_id}/resolve` clears an accepted impact. Submit a route through `POST /routes`.
+`POST /reports` stores proposed, pending incident reports. Only `POST /reports/{report_id}/confirm` applies their impact; `POST /reports/{report_id}/reject` rejects an unverified report; `POST /reports/{report_id}/resolve` clears a confirmed incident impact. Submit a route through `POST /routes`. Confirmed incident delays are summed, and any active closure excludes that segment from routing.
 
 This is an educational MVP: it does not ingest live feeds, geocode reports, or provide validated emergency dispatch advice. Human review is required before reports affect routing.

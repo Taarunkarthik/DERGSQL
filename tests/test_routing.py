@@ -35,3 +35,10 @@ def test_negative_cost_rejected(edges):
     edges[0]["effective_seconds"] = -1
     with pytest.raises(ValueError, match="nonnegative"):
         shortest_path(edges, "A", "D")
+
+
+def test_route_origin_equals_destination():
+    result = shortest_path([], "A", "A")
+    assert result["intersections"] == ["A"]
+    assert result["road_ids"] == []
+    assert result["estimated_seconds"] == 0

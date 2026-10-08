@@ -10,7 +10,7 @@
 - [x] Implement deterministic Dijkstra routing over eligible directed road segments.
 - [x] Expose FastAPI health, network bootstrap, report, confirm, resolve, incident listing, and route endpoints.
 - [x] Add Docker Compose for local Neo4j, `.env.example`, and `.gitignore`.
-- [x] Add unit tests for routing and validation; database integration testing remains a follow-up.
+- [x] Add unit tests for routing, request validation, API seed validation, incident lifecycle behavior, and provenance lookup; live Neo4j integration testing remains a follow-up.
 - [x] Update README with local run, seed, and test instructions; keep safety limitations clear.
 
 ## Verification / handoff
