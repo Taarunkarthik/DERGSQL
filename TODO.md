@@ -2,19 +2,32 @@
 
 ## MVP implementation
 
-- [x] Create Python package layout, dependency manifest, configuration, and safe local environment defaults.
-- [x] Define request/response models for intersections, road segments, reports, incident review, resolution, and route requests.
-- [x] Implement Neo4j schema constraints and idempotent sample-network seeding.
-- [x] Implement report intake with provenance and review state; only confirmed reports affect routing.
-- [x] Implement transactional segment impacts with baseline costs preserved, closure handling, and incident resolution.
-- [x] Implement deterministic Dijkstra routing over eligible directed road segments.
-- [x] Expose FastAPI health, network bootstrap, report, confirm, resolve, incident listing, and route endpoints.
-- [x] Add Docker Compose for local Neo4j, `.env.example`, and `.gitignore`.
-- [x] Add unit tests for routing, request validation, API seed validation, incident lifecycle behavior, and provenance lookup; live Neo4j integration testing remains a follow-up.
-- [x] Update README with local run, seed, and test instructions; keep safety limitations clear.
+- [x] Python package layout, dependency manifest, configuration, and safe local environment defaults.
+- [x] Neo4j schema constraints and idempotent sample-network seeding.
+- [x] Request/response models for network seeding, reports, structured extraction, and routes.
+- [x] Report intake with provenance and review state; only confirmed reports affect routing.
+- [x] Structured extractor intake for LLM-produced JSON candidates.
+- [x] Coordinate-radius and exact-intersection-name road matching.
+- [x] Transactional segment impacts with baseline costs preserved, closure handling, and incident resolution.
+- [x] Deterministic vehicle-aware Dijkstra routing over eligible directed road segments.
+- [x] Network inspection, nearby-roads, report audit, incident list, confirm/reject/resolve, and route endpoints.
+- [x] Docker Compose, `.env.example`, `.gitignore`, and sample network data.
+- [x] Unit and API tests for routing, validation, extraction, matching, incident lifecycle, audit, and recomputation.
+- [x] Optional live Neo4j integration test gated by `DERGSQL_NEO4J_INTEGRATION=1`.
+- [x] README with setup, run, test, and safety limitations.
 
 ## Verification / handoff
 
-- [ ] Run automated tests and lint checks available in the environment.
-- [ ] Review Git diff and ensure secrets and local state are excluded.
-- [ ] Tell the maintainer when changes are ready to push; do not push without explicit instruction.
+- [x] Run automated tests available in the environment.
+- [x] Compile Python modules.
+- [x] Run `git diff --check`.
+- [x] Confirm secrets and local `.env` are not committed.
+- [x] Tell the maintainer when changes are ready to push; do not push without explicit instruction.
+
+## Remaining beyond educational MVP
+
+- [ ] Add authentication and roles for operators/admins.
+- [ ] Replace simple endpoint matching with real road geometry/geocoder integration.
+- [ ] Add actual trusted incident-feed ingestion.
+- [ ] Add monitoring, backups, and deployment hardening.
+- [ ] Perform operational safety validation before any real dispatch use.

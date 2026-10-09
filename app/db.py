@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from neo4j import Driver
 
 from app.config import settings
+
+
+def open_session(driver: Driver):
+    try:
+        return driver.session(database=settings.neo4j_database)
+    except TypeError:
+        return driver.session()
 
 
 def create_driver() -> Driver:
@@ -19,12 +24,6 @@ def create_driver() -> Driver:
     )
 
 
-@contextmanager
-def session_scope(driver: Driver) -> Iterator:
-    with driver.session() as session:
-        yield session
-
-
 def initialize_schema(driver: Driver) -> None:
     constraints = [
         "CREATE CONSTRAINT intersection_id IF NOT EXISTS FOR (n:Intersection) REQUIRE n.id IS UNIQUE",
@@ -32,13 +31,13 @@ def initialize_schema(driver: Driver) -> None:
         "CREATE CONSTRAINT incident_id IF NOT EXISTS FOR (n:Incident) REQUIRE n.id IS UNIQUE",
         "CREATE CONSTRAINT report_id IF NOT EXISTS FOR (n:Report) REQUIRE n.id IS UNIQUE",
     ]
-    with driver.session() as session:
+    with open_session(driver) as session:
         for statement in constraints:
             session.run(statement).consume()
 
 
 def seed_network(driver: Driver, intersections: list[dict], roads: list[dict]) -> None:
-    with driver.session() as session:
+    with open_session(driver) as session:
         def seed(tx) -> None:
             tx.run(
                 "UNWIND $items AS item MERGE (n:Intersection {id:item.id}) "

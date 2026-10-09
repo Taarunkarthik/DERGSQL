@@ -1,9 +1,10 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from app.audit import report_audit
-from app.db import create_driver, initialize_schema, seed_network
+from app.config import settings
+from app.db import create_driver, initialize_schema, open_session, seed_network
 from app.incidents import (
     confirm_report,
     ingest_report,
@@ -11,8 +12,9 @@ from app.incidents import (
     reject_report,
     resolve_report,
 )
-from app.models import NetworkSeed, ReportInput, RouteRequest
-from app.network import get_segment, list_network
+from app.intake import create_candidate_report
+from app.models import ExtractionIntake, NetworkSeed, ReportInput, RouteRequest
+from app.network import get_segment, list_network, nearest_segments
 from app.routing import find_route
 
 
@@ -28,16 +30,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="DERGSQL Emergency Routing API",
-    description="A database-backed MVP for incident-aware emergency routing.",
-    version="0.1.0",
-    lifespan=lifespan,
+    description="A database-backed educational MVP for incident-aware emergency routing.",
+    version="0.2.0",
 )
+app.router.lifespan_context = lifespan
 
 
 @app.get("/health")
 def health():
     try:
-        with app.state.driver.session() as session:
+        with open_session(app.state.driver) as session:
             session.run("RETURN 1").consume()
         return {"status": "ok", "database": "connected"}
     except Exception as exc:
@@ -67,12 +69,43 @@ def network():
     return list_network(app.state.driver)
 
 
+@app.get("/roads/nearby")
+def roads_nearby(
+    latitude: float = Query(ge=-90, le=90),
+    longitude: float = Query(ge=-180, le=180),
+    radius_m: float = Query(default=1000, gt=0, le=50_000),
+):
+    try:
+        return {"roads": nearest_segments(app.state.driver, latitude, longitude, radius_m)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/roads/{road_id}")
 def road(road_id: str):
     try:
         return get_segment(app.state.driver, road_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/reports/extract", status_code=201)
+def extract_report(payload: ExtractionIntake):
+    """Accept caller-supplied structured LLM output; stores candidate pending review only."""
+    try:
+        return create_candidate_report(
+            app.state.driver,
+            report_id=payload.report_id,
+            source=payload.source,
+            raw_text=payload.raw_text,
+            extraction=payload.extraction,
+            radius_m=payload.radius_m,
+            confidence_threshold=max(
+                payload.confidence_threshold, settings.minimum_extraction_confidence
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/reports", status_code=201)
@@ -88,7 +121,9 @@ def confirm(report_id: str):
     try:
         return confirm_report(app.state.driver, report_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        message = str(exc)
+        status_code = 404 if message.startswith("Report not found") else 409
+        raise HTTPException(status_code=status_code, detail=message) from exc
 
 
 @app.post("/reports/{report_id}/reject")
@@ -106,7 +141,9 @@ def resolve(report_id: str):
     try:
         return resolve_report(app.state.driver, report_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        message = str(exc)
+        status_code = 404 if message.startswith("Confirmed report not found") else 409
+        raise HTTPException(status_code=status_code, detail=message) from exc
 
 
 @app.get("/reports/{report_id}/audit")
@@ -118,8 +155,14 @@ def report_history(report_id: str):
 
 
 @app.get("/incidents")
-def incidents(status: str | None = None):
-    return list_incidents(app.state.driver, status)
+def incidents(
+    status: str | None = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    if status not in (None, "confirmed", "resolved"):
+        raise HTTPException(status_code=422, detail="status must be confirmed or resolved")
+    return list_incidents(app.state.driver, status, limit=limit, offset=offset)
 
 
 @app.post("/routes")

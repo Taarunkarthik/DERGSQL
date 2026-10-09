@@ -20,6 +20,9 @@ class Result:
     def single(self):
         return self.record
 
+    def consume(self):
+        return None
+
 
 class FakeTx:
     def __init__(self, responses):
@@ -58,14 +61,9 @@ class FakeDriver:
 
 def sample_report():
     return ReportInput(
-        report_id="report-1",
-        source="dispatcher",
-        raw_text="Two lanes blocked",
-        location_text="Road AB",
-        severity="high",
-        delay_seconds=120,
-        affected_road_ids=["AB"],
-        confidence=0.9,
+        report_id="report-1", source="dispatcher", raw_text="Two lanes blocked",
+        location_text="Road AB", severity="high", delay_seconds=120,
+        affected_road_ids=["AB"], confidence=0.9,
     )
 
 
@@ -80,13 +78,15 @@ def test_ingest_rejects_unknown_segment_transactionally():
     assert len(driver.tx.queries) == 2
 
 
-def test_confirm_creates_only_confirmed_active_impact():
-    driver = FakeDriver([{"id": "report-1", "status": "confirmed", "affected_segments": 1}])
+def test_confirm_stages_an_incident_transactionally():
+    tx = FakeTx([{"id": "report-1", "road_ids": ["AB"]}, None, None, None])
+    driver = FakeDriver([])
+    driver.tx = tx
     result = confirm_report(driver, "report-1")
-    assert result["status"] == "confirmed"
-    query = driver.tx.queries[0][0]
-    assert "impact.active=true" in query
-    assert "explicitly_confirmed=true" in query
+    assert result == {"id": "report-1", "status": "confirmed", "affected_segments": 1}
+    assert len(tx.queries) == 4
+    assert "impact.active=true" in tx.queries[2][0]
+    assert "explicitly_confirmed=true" in tx.queries[1][0]
 
 
 def test_reject_pending_report_does_not_create_incident():
@@ -98,10 +98,13 @@ def test_reject_pending_report_does_not_create_incident():
     assert "Incident" not in query
 
 
-def test_resolve_deactivates_impact_and_uses_other_active_incidents():
-    driver = FakeDriver([{"id": "report-1", "status": "resolved"}])
+def test_resolve_deactivates_impact_and_recomputes_segment():
+    tx = FakeTx([{"status": "confirmed"}, {"road_ids": ["AB"]}, None, None, None])
+    driver = FakeDriver([])
+    driver.tx = tx
     result = resolve_report(driver, "report-1")
     assert result["status"] == "resolved"
-    query = driver.tx.queries[0][0]
-    assert "old.active=false" in query
-    assert "other <> i" in query
+    assert "collect(DISTINCT s.id)" in tx.queries[1][0]
+    assert "impact.active=false" in tx.queries[2][0]
+    assert "SET r.status='resolved'" in tx.queries[3][0]
+    assert "s.effective_seconds=s.baseline_seconds + delay" in tx.queries[4][0]

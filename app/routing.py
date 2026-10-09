@@ -46,7 +46,6 @@ def shortest_path(
 
     if destination_id not in distances:
         raise LookupError("No open route exists between the requested intersections")
-
     nodes = [destination_id]
     roads = []
     current = destination_id
@@ -64,20 +63,15 @@ def shortest_path(
 
 
 def _traffic_version(edges: list[dict]) -> str:
-    """Stable fingerprint for the traffic graph snapshot used by this query."""
     signature = [
         (
-            edge["id"],
-            edge["start_id"],
-            edge["end_id"],
-            float(edge["effective_seconds"]),
-            edge["status"],
+            edge["id"], edge["start_id"], edge["end_id"],
+            float(edge["effective_seconds"]), edge["status"],
             tuple(sorted(edge.get("allowed_vehicle_types") or [])),
         )
         for edge in edges
     ]
-    canonical = repr(sorted(signature)).encode("utf-8")
-    return sha256(canonical).hexdigest()[:16]
+    return sha256(repr(sorted(signature)).encode("utf-8")).hexdigest()[:16]
 
 
 def find_route(
@@ -86,7 +80,9 @@ def find_route(
     destination_id: str,
     vehicle_type: str = "ambulance",
 ) -> dict:
-    with driver.session() as session:
+    from app.db import open_session
+
+    with open_session(driver) as session:
         rows = session.run(
             "MATCH (a:Intersection)-[:ROAD_TO]->(r:RoadSegment)-[:ROAD_TO]->(b:Intersection) "
             "RETURN a.id AS start_id, b.id AS end_id, r.id AS id, "
@@ -94,6 +90,12 @@ def find_route(
             "r.allowed_vehicle_types AS allowed_vehicle_types"
         )
         edges = [dict(row) for row in rows]
+        nodes = {
+            row["id"]
+            for row in session.run("MATCH (n:Intersection) RETURN n.id AS id")
+        }
+    if origin_id not in nodes or destination_id not in nodes:
+        raise LookupError("Unknown origin or destination intersection")
     route = shortest_path(edges, origin_id, destination_id, vehicle_type)
     route["traffic_version"] = _traffic_version(edges)
     route["vehicle_type"] = vehicle_type

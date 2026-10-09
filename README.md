@@ -1,223 +1,141 @@
 # DERGSQL — Dynamic Emergency Routing Graph
 
-> **Project status:** Concept and design documentation. This repository does not yet contain an implemented application. The instructions below describe a practical MVP implementation path; commands should be run from the repository root as the project is built.
+DERGSQL is a database-centered educational MVP for dynamic emergency routing. It stores a directed city road graph in Neo4j, stages unstructured/LLM-extracted incident reports for human review, applies confirmed traffic impacts transactionally, and computes Dijkstra routes over the current graph state.
 
-## What it will do
+> Safety note: this is a learning/demo project. It is not validated for real emergency dispatch, does not authenticate operators, and should not be used to route actual emergency vehicles.
 
-DERGSQL is a database-centered emergency routing system. It stores a city's intersections and directed road segments, records incident reports and their provenance, updates time-bounded traffic impacts, and calculates routes against a consistent current network state. Dijkstra's algorithm is the routing operation; reliable graph data management is the core project focus.
+## Current features
 
-The LLM-assisted intake is optional for the first milestone. Reports should be validated and reviewed before they affect operational routing. This prototype is not an autonomous dispatch authority.
+- Neo4j schema constraints for intersections, road segments, reports, and incidents.
+- Idempotent sample-network seeding.
+- Network inspection endpoints for the full graph, individual roads, and nearby roads.
+- Manual report intake with provenance and review status.
+- Structured extractor intake for caller-supplied LLM JSON; extracted reports remain pending until confirmed.
+- Coordinate-radius and exact-intersection-name matching to candidate road segments.
+- Confirm/reject/resolve incident lifecycle.
+- Transactional recomputation of segment status and effective travel time.
+- Vehicle-aware Dijkstra routing for `ambulance`, `fire`, `police`, and `general` vehicles.
+- Route responses include a stable traffic snapshot fingerprint.
+- Audit endpoint showing source text, extraction metadata, proposed roads, and active impacted roads.
+- Unit/API tests plus optional live Neo4j integration tests.
 
-## Proposed MVP stack
+## Stack
 
-- **Graph DB:** Neo4j Community Edition
-- **Application/API:** Python 3.11+ and FastAPI
-- **Neo4j driver:** `neo4j` Python package
-- **Input validation:** Pydantic models
-- **Tests:** pytest
-- **Optional LLM intake:** provider-independent extraction adapter that returns schema-validated candidate JSON; keep it disabled until deterministic ingestion and review workflows work.
+- Python 3.11+
+- FastAPI
+- Neo4j Community Edition
+- Pydantic / pydantic-settings
+- pytest
 
-A relational/PostGIS implementation is also possible, but this guide uses Neo4j to align with the graph model.
-
-## Prerequisites
-
-Install:
-
-1. Git
-2. Python 3.11 or newer
-3. Docker Desktop with Docker Compose
-
-Verify in a terminal:
+## Setup
 
 ```powershell
-git --version
-python --version
-docker --version
-docker compose version
+cd "C:\Users\HP\OneDrive\Documents\deepseek-harness\default-workspace\DERGSQL"
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"
 ```
 
-## Build the project from scratch
+Create `.env` from `.env.example` and set a local Neo4j password:
 
-### 1. Create the application layout
-
-```text
-DERGSQL/
-├── app/
-│   ├── __init__.py
-│   ├── main.py
-│   ├── config.py
-│   ├── db.py
-│   ├── models.py
-│   ├── incidents.py
-│   └── routing.py
-├── data/
-│   └── sample-network.json
-├── tests/
-│   ├── test_incidents.py
-│   └── test_routing.py
-├── .env.example
-├── .gitignore
-├── compose.yaml
-├── pyproject.toml
-└── README.md
+```powershell
+Copy-Item .env.example .env
 ```
 
-### 2. Start Neo4j
+## Start Neo4j
 
-Create `compose.yaml`:
-
-```yaml
-services:
-  neo4j:
-    image: neo4j:5-community
-    ports:
-      - "7474:7474"
-      - "7687:7687"
-    environment:
-      NEO4J_AUTH: neo4j/change-this-password
-    volumes:
-      - neo4j_data:/data
-    healthcheck:
-      test: ["CMD-SHELL", "cypher-shell -u neo4j -p change-this-password 'RETURN 1' || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-volumes:
-  neo4j_data:
-```
-
-For local development only, create `.env` with a strong local password and configure Compose to read it; never commit secrets. Start the database:
+Docker Desktop is required for the provided Compose file:
 
 ```powershell
 docker compose up -d
 ```
 
-Neo4j Browser is available at `http://localhost:7474`; Bolt is at `bolt://localhost:7687`.
+Neo4j Browser: `http://localhost:7474`
 
-### 3. Set up Python dependencies
+Bolt URI: `bolt://localhost:7687`
 
-Create a virtual environment and install the application dependencies (`fastapi`, `uvicorn[standard]`, `neo4j`, `pydantic`, and `pydantic-settings`) plus development dependencies (`pytest`, `httpx`, and `ruff`). Record pinned or bounded versions in `pyproject.toml`.
+If Docker is not installed, start a Neo4j 5 instance manually and set `NEO4J_URI`, `NEO4J_USERNAME`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE` in `.env`.
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install fastapi "uvicorn[standard]" neo4j pydantic pydantic-settings pytest httpx ruff
-```
-
-Create `.env.example` with placeholders (not real credentials):
-
-```dotenv
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=replace-me
-```
-
-Copy it to `.env`, set the same local database credentials, and ensure `.env` and `.venv/` are ignored by Git.
-
-### 4. Model and seed the road graph
-
-Use stable IDs and explicit relationship direction. A minimal model is:
-
-- `(:Intersection {id, name, latitude, longitude})`
-- `(:Intersection)-[:ROAD_SEGMENT {id, baseline_seconds, effective_seconds, length_m, status, valid_from, valid_until}]->(:Intersection)`
-- `(:Incident {id, type, severity, status, reported_at, expires_at})`
-- `(:Report {id, source, received_at, raw_text, confidence, review_status})`
-- `(Report)-[:DESCRIBES]->(Incident)`
-- `(Incident)-[:AFFECTS {delay_seconds, closure, valid_from, valid_until}]->(RoadSegment)` or an equivalent separately modeled segment entity
-
-Create uniqueness constraints for stable IDs before loading data. Seed a small sample network (a few intersections and alternate paths), then verify that all segment endpoints exist and costs are nonnegative. Keep baseline values separate from incident impacts so that resolving an incident can restore the correct state.
-
-### 5. Implement incident ingestion and state updates
-
-Define request schemas for reports and incidents. Validate required fields, timestamps, units, supported severity values, and confidence ranges. Preserve raw source text or a secure source reference, extraction evidence, and review status.
-
-Implement a transactional workflow that:
-
-1. Saves the report and candidate incident with provenance.
-2. Resolves the reported location to candidate road segments.
-3. Requires review when location matching or extraction confidence is ambiguous.
-4. Records accepted, time-bounded impacts without destroying baseline data.
-5. Recomputes effective segment costs using a documented policy for overlapping, duplicate, stale, or conflicting reports.
-6. Expires or clears impacts and records who/what changed the state.
-
-Do not let an unverified LLM response directly close a road or trigger a dispatch decision. Make updates idempotent so a retried report does not create duplicate impacts.
-
-### 6. Implement routing
-
-For the MVP, route over open directed segments using nonnegative `effective_seconds` weights. Dijkstra finds the minimum estimated travel-time path. Exclude closed or vehicle-ineligible segments. Return the ordered segment IDs, total estimated time, calculation time, and a graph/traffic-state version so a result is explainable and reproducible.
-
-Use a small, deterministic sample graph to test routes, including a case where the fastest route changes after an incident and a case where a closure forces an alternate path. Keep routing logic separate from database access so it can be unit-tested independently.
-
-### 7. Add API endpoints
-
-A minimal API can expose:
-
-- `GET /health` — API and database health.
-- `POST /reports` — submit a report for validation/review.
-- `POST /incidents/{id}/confirm` — accept an incident and apply impacts.
-- `POST /incidents/{id}/resolve` — resolve and clear active impacts.
-- `GET /incidents?status=active` — list current incidents.
-- `POST /routes` — request a route for origin, destination, vehicle type, and optional departure time.
-
-Document request/response schemas and return explicit validation errors. Add authentication and authorization before exposing anything beyond a local demo.
-
-### 8. Test and run locally
-
-Start Neo4j, activate the virtual environment, then run:
+## Run the API
 
 ```powershell
-pytest -q
-ruff check .
 uvicorn app.main:app --reload
 ```
 
-Open the interactive API docs at `http://127.0.0.1:8000/docs`. Include integration tests against a disposable/test database for constraints, transactional updates, expiry, and route behavior; unit tests should cover parsing, validation, and Dijkstra edge cases.
+Open the API docs at `http://127.0.0.1:8000/docs`.
 
-### 9. Evaluate and harden
+## Demo workflow
 
-Before expanding the scope, verify:
+1. Seed the graph with `POST /network/seed` using `data/sample-network.json`.
+2. Inspect the graph with `GET /network` or `GET /roads/{road_id}`.
+3. Optionally find nearby candidate roads with `GET /roads/nearby?latitude=...&longitude=...&radius_m=...`.
+4. Create a pending report with either:
+   - `POST /reports` for manually structured reports, or
+   - `POST /reports/extract` for validated structured LLM/extractor output.
+5. Review provenance with `GET /reports/{report_id}/audit`.
+6. Apply the incident with `POST /reports/{report_id}/confirm`.
+7. Request a route using `POST /routes`:
 
-- Incident-to-road matching is correct on the sample map.
-- Duplicate reports do not double-count delays.
-- Expired/resolved incidents no longer affect routes.
-- Concurrent or stale updates cannot overwrite newer verified state.
-- Route costs are nonnegative and closures/restrictions are respected.
-- Every route can be traced to the traffic snapshot and active reports that informed it.
-- Credentials, supplier/source data, and operational data are protected; secrets are never committed.
+```json
+{
+  "origin_id": "A",
+  "destination_id": "D",
+  "vehicle_type": "ambulance"
+}
+```
 
-For a real deployment, use trusted incident feeds, human operational oversight, monitoring, backups, access controls, retention policies, and tested fallback behavior. Validate routing against authoritative road and traffic data before any real-world use.
+8. Resolve the incident with `POST /reports/{report_id}/resolve` and rerun routing.
 
-## Suggested implementation milestones
+## Structured extraction payload
 
-1. **Database foundation:** schema, constraints, sample network, connectivity check.
-2. **Incident lifecycle:** reports, review, segment impacts, expiry, audit history.
-3. **Routing:** Dijkstra against current eligible edge costs and reproducible results.
-4. **API and tests:** endpoints, validation, integration tests, API documentation.
-5. **Assisted extraction:** optional LLM adapter, structured output validation, evidence capture, review queue.
-6. **Operational readiness:** security, monitoring, real data integration, load and safety evaluation.
+`POST /reports/extract` accepts already-produced structured JSON. It does not scrape sources or call an LLM by itself.
 
-## Existing design document
+```json
+{
+  "report_id": "report-outer-ring-1",
+  "source": "operator-note",
+  "raw_text": "Accident near Central Station, two lanes blocked",
+  "radius_m": 1000,
+  "confidence_threshold": 0.6,
+  "extraction": {
+    "incident_type": "collision",
+    "location_text": "Central Station",
+    "severity": "high",
+    "delay_seconds": 600,
+    "closure": false,
+    "confidence": 0.82,
+    "latitude": 12.9716,
+    "longitude": 77.5946
+  }
+}
+```
 
-See [dynamic-emergency-routing-graph.md](dynamic-emergency-routing-graph.md) for the concept, database design rationale, example data entities, and project scope.
+Low-confidence extraction is marked `review_required`; it is still only a pending candidate until confirmed.
 
-## Run the MVP
+## Testing
 
-1. Create a local `.env` from `.env.example` and set `NEO4J_PASSWORD` to a local password.
-2. Start Neo4j: `docker compose up -d`.
-3. Create and activate a Python virtual environment, then install the project:
+Run the standard test suite:
 
-   ```powershell
-   python -m venv .venv
-   .\.venv\Scripts\Activate.ps1
-   python -m pip install -e ".[dev]"
-   ```
+```powershell
+pytest -q -p no:cacheprovider
+```
 
-4. Start the API: `uvicorn app.main:app --reload`.
-5. Open `http://127.0.0.1:8000/docs`. Seed the network with the contents of `data/sample-network.json` using `POST /network/seed`.
-6. Inspect the stored graph using `GET /network` or a segment using `GET /roads/{road_id}`; submit a report and review it via the report confirm/reject endpoints.
-7. Run tests: `pytest -q`; lint with `ruff check .`.
+Optional live Neo4j integration test:
 
-`POST /reports` stores proposed, pending incident reports. Only `POST /reports/{report_id}/confirm` applies their impact; `POST /reports/{report_id}/reject` rejects an unverified report; `POST /reports/{report_id}/resolve` clears a confirmed incident impact. Submit a route through `POST /routes` with `origin_id`, `destination_id`, and optional `vehicle_type` (`ambulance`, `fire`, `police`, or `general`). Seeded roads can specify `allowed_vehicle_types`; Dijkstra excludes roads that do not allow the requested vehicle. Route results include a stable fingerprint of the traffic graph snapshot. Confirmed incident delays are summed, and any active closure excludes that segment from routing.
+```powershell
+$env:DERGSQL_NEO4J_INTEGRATION="1"
+pytest tests/test_neo4j_integration.py -q -p no:cacheprovider
+```
 
-This is an educational MVP: it does not ingest live feeds, geocode reports, or provide validated emergency dispatch advice. Human review is required before reports affect routing.
+The integration test needs a running Neo4j instance configured through `.env`.
+
+## Important limitations
+
+- No authentication/authorization yet.
+- No real social-media/radio feed ingestion.
+- No external geocoder or full road-geometry map matching.
+- No live traffic provider integration.
+- No operational safety certification.
+
+The project demonstrates DBMS design, transactional graph updates, provenance, review workflow, and route computation for a classroom/demo setting.
